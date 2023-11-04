@@ -1,0 +1,142 @@
+---
+title: ""
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+rm(list = ls())
+gc()
+setwd("/Users/cwn/workdir/project/IBD-px/result-all-CD")
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(extrafont)
+library(pheatmap)
+```
+
+1.
+```{r}
+siblingR <- read.table("3.2 pathway-wilcoxon_test_result-sib-R.tsv", header=T, row.names = 1,sep="\t",check.names = F)
+siblingR <- siblingR[which(siblingR$FDR<0.05),]
+siblingA <- read.table("3.2 pathway-wilcoxon_test_result-sib-A.tsv", header=T, row.names = 1,sep="\t",check.names = F)
+siblingA <- siblingA[which(siblingA$FDR<0.05),]
+length(intersect(rownames(siblingA),rownames(siblingR)))
+PWY_anno <- read.table("metacyc/map_metacyc-pwy_lineage.tsv", header=F,sep="\t")
+
+#按照FC排序
+siblingR <- siblingR[order(abs(log2(siblingR$FC.division.)),decreasing=TRUE),]
+siblingA <- siblingA[order(abs(log2(siblingA$FC.division.)),decreasing=TRUE),]
+
+#pathway注释
+anno <- function(x) {
+  anno_final1 <- c()
+  anno_final2 <- c()
+  for (i in rownames(x)) {
+    anno_table <- PWY_anno[which(PWY_anno$V1==i),]
+    if(nrow(anno_table)==1){
+      annot <- unlist(strsplit(anno_table$V2,split = '|',fixed = T))
+      annot1 <- annot[length(annot)]
+      if(length(annot)>2){
+        annot2 <- annot[2]
+      }else{
+        annot2 <- annot[1]
+      }
+      anno_final1 <- c(anno_final1,annot1)
+      anno_final2 <- c(anno_final2,annot2)
+    }else if(nrow(anno_table) > 1){
+      anno_table_len <- mutate(anno_table,strlen = str_length(anno_table$V2))
+      annot <- unlist(strsplit(anno_table$V2[which(anno_table_len$strlen==max(anno_table_len$strlen))],split = '|',fixed = T))
+      annot1 <- annot[length(annot)]
+      if(length(annot)>2){
+        annot2 <- annot[2]
+      }else{
+        annot2 <- annot[1]
+      }
+      anno_final1 <- c(anno_final1,annot1)
+      anno_final2 <- c(anno_final2,annot2)
+    }else{
+      anno_final1 <- c(anno_final1,NA)
+      anno_final2 <- c(anno_final2,NA)
+    }
+  }
+  x$Annotation <- anno_final1
+  x$Surperclass <- anno_final2
+  return(x)
+}
+
+siblingA <- anno(siblingA)
+siblingR <- anno(siblingR)
+
+# write.csv(siblingA,file = "3 different_pathway_A.csv")
+# write.csv(siblingR,file = "3 different_pathway_R.csv")
+
+```
+
+
+3.FC -NEWNEW
+```{r}
+#
+fc_final_R <- read.table("3.3 heatmap-fc前25-R.csv", header=T, row.names = NULL,sep=",",check.names = F)
+fc_final_A <- read.table("3.3 heatmap-fc前25-A.csv", header=T, row.names = NULL,sep=",",check.names = F)
+fc_final_all <- full_join(fc_final_R,fc_final_A,by="ID")
+fc_final_R_ALL <- read.table("3.3 heatmap-R.csv", header=T, row.names = NULL,sep=",",check.names = F)
+fc_final_R_ALL <- fc_final_R_ALL[which(fc_final_R_ALL$ID %in% fc_final_all$ID),]
+fc_final_A_ALL <- read.table("3.3 heatmap-A.csv", header=T, row.names = NULL,sep=",",check.names = F)
+fc_final_A_ALL <- fc_final_A_ALL[which(fc_final_A_ALL$ID %in% fc_final_all$ID),]
+fc_final_all <- full_join(fc_final_A_ALL,fc_final_R_ALL,by="ID")
+# write.csv(fc_final_all,file = "3.3 heatmap-fc前25.csv")##手动修改了一下
+
+fc_final <- read.table("3.3 heatmap-fc前25.csv", header=T, row.names = 1,sep=",",check.names = F)
+pmt <- fc_final[,c(9,15)]
+rownames(fc_final) <- fc_final$Description.x
+annot <- data.frame('Class'=fc_final$Class.x,row.names = rownames(fc_final))
+table(annot$Class)
+ann_colors = list(
+  Class = c(`Amide, Amidine, Amine, and Polyamine Degradation`="#4d1344",
+             `Amino Acid Biosynthesis/Degradation`="#bd4a4f",
+             `Aromatic Compound Degradation/Biosynthesis`="#d77150",
+             `Carbohydrate Biosynthesis/Degradation`="#eaaa6d",
+             `Cell Structure Biosynthesis`="#ecf594",
+             `Cofactor, Prosthetic Group, Electron Carrier, and Vitamin Biosynthesis`="#aed214",
+             `Fatty Acid and Lipid Biosynthesis/Degradation`="#1abc9c",
+             `Fermentation to Short-Chain Fatty Acids`="#4ea06b",
+            `Nucleoside and Nucleotide Biosynthesis/Degradation`="#2980b9",
+            `Secondary Metabolite Biosynthesis/Degradation`="#8e44ad",
+            `TCA cycle`="#564191",
+            `Others`="#9c9a9b"))
+
+min(fc_final[,c(7,13)])
+max(fc_final[,c(7,13)])
+
+bk1 <- seq(-0.0027,-0.000001,by=0.00001)
+bk2 <- seq(0,0.00237,by=0.00001)
+pmt <- round(pmt, digits = 3)
+p <- pheatmap(as.matrix((fc_final[,c(7,13)])),scale = "none",cluster_row = F, cluster_col = F, 
+              treeheight_row = 100, border=NA,
+              display_numbers = pmt,
+              fontsize_number = 10,
+              number_format = "%.3f",
+              number_color = "black",
+              cellwidth = 80, cellheight =13,legend=TRUE,
+              annotation_names_col = TRUE,
+              color = c(colorRampPalette(colors = c("#000a7a","white"))(length(bk1)),
+                        colorRampPalette(colors = c("white","#be3830"))(length(bk2))),
+              breaks=c(bk1,bk2),
+              annotation_row = annot,
+              annotation_row_width=1,
+              annotation_colors = ann_colors,
+              show_colnames=T,
+              angle_col=0,
+              fontsize_row=10,
+              fontsize_col = 10)
+
+pdf("3.3 heatmap-pathway-fc25.pdf",width = 30,height = 20)
+p
+dev.off()
+
+```

@@ -1,0 +1,212 @@
+---
+title: 
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+rm(list = ls())
+gc()
+setwd("/Users/cwn/workdir/project/IBD-px/result-all-CD")
+library(ggridges)
+library(tidyverse)
+library(extrafont)
+library(ggplot2)
+```
+
+```{r}
+short_name <- function(taxa){
+  final<-c()
+  for (i in taxa) {
+    x = unlist(strsplit(i,"g__"))[2]
+    if(is.na(x)){
+      x = unlist(strsplit(i,"f__"))[2]
+      if(is.na(x)){
+        x = unlist(strsplit(i,"o__"))[2]
+        if(is.na(x)){
+          x = unlist(strsplit(i,"c__"))[2]
+          if(is.na(x)){
+            x = unlist(strsplit(i,"p__"))[2]
+            if(is.na(x)){
+              x = unlist(strsplit(i,"d__"))[2]
+            }else{
+              final <- c(final,x)
+            }
+          }else{
+            final <- c(final,x)
+          }
+        }else{
+          final <- c(final,x)
+        }
+      }else{
+        final <- c(final,x)
+      }
+    }else{
+      final <- c(final,x)
+    }
+  }
+  final <- make.unique(final, sep = "_")#去重
+}
+```
+
+读入table：
+```{r}
+venn_result <- read.table("2.1.1.2 venn-wilcox-genus.tsv", header=T, row.names = NULL,sep="\t")
+table_path='genus-rela.tsv'
+
+table0 = read.table(table_path, header = T,comment.char = "$", row.names= 1, sep="\t")
+
+venn_result1 <- unlist(strsplit(venn_result[which(venn_result$Sibling_A==TRUE |
+                                                  venn_result$Sibling_R==TRUE),]$..values.., split = ','))
+```
+
+2.meta
+```{r}
+metadata <- read.table("metadata-sib-nonsib.tsv", header=T, row.names = 1,sep="\t")
+metadata <- metadata[which(metadata$Disease != 'non-Relative'),]
+metadata$State[metadata$State=="Activate"]<- 'Active'
+metadata$State[metadata$State=="Remisson"]<- 'Remission'
+metadata$State[is.na(metadata$State)]<- 'Healthy'
+
+table1 <- table0[which(rownames(table0) %in% venn_result1),which(colnames(table0) %in% rownames(metadata))]
+rownames(table1) <- short_name(rownames(table1))
+table1 <- table1[hcluster_order,]
+
+```
+
+bar
+```{r}
+
+# Calculates mean, sd, se and IC
+kk1$Abundance_new <- kk1$Abundance*100
+my_sum <- kk1 %>%
+  group_by(Genus,State_new) %>%
+  summarize( 
+    n=n(),
+    mean=mean(Abundance_new),
+    sd=sd(Abundance_new)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+
+p2 <-ggplot(my_sum, aes(x = State_new, y =mean )) +
+  geom_bar(stat="identity", fill="#71b2d9", alpha=1,width=0.7) +
+  geom_errorbar( aes(ymin=mean-ic, ymax=mean+ic), width=0.3, colour="black", alpha=0.9, size=0.7)+
+  geom_smooth(aes(x=as.numeric(State_new), y=Abundance_new),data = kk1, color='#43769c', level=0.95,method='loess', size=1,se = TRUE)+
+  # geom_ribbon(aes(ymin = mean-ic, ymax = mean+ic), fill = "grey",alpha=.2)+
+  # stat_smooth(method = "lm", se = FALSE,span = 0.8, aes(group=1),colour='#9A7D58')+
+  ylab('Relative Abundance (%)')+
+  theme(axis.text = element_text(size = 14,colour = 'black',family = 'Arial'), 
+        # axis.text.y = element_blank(),
+        axis.title.y = element_text(size = 18,colour = 'black',family = 'Arial'),
+        axis.title.x  = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_rect(color = 'black', fill = 'transparent'),
+        legend.title=element_blank(),
+        legend.position="none",
+        panel.border = element_rect(fill=NA,color="black", linewidth=2, linetype="solid"))+
+  facet_wrap(vars(Genus), nrow = 4, scales = 'free_y')+
+  theme(strip.text = element_text(size=14,family = 'Arial')) #分面变量的标题
+# facet_grid(Genus~.)
+p2
+
+ggsave("2.2.4 bar-new.pdf",p2,width=15 ,height=15*4/7,device = cairo_pdf)
+
+```
+
+
+validation table：
+```{r}
+table_path0='5.1 metaphlan3-WGS_A&R_data_unpolit-genus.tsv'
+table0 = read.table(table_path0, header = T,comment.char = "$", row.names= 1, sep="\t")
+
+table_path1='5.1 metaphlan3-WGS_Active_data_unpolit-genus.tsv'
+table1 = read.table(table_path1, header = T,comment.char = "$", row.names= 1, sep="\t")
+
+table1 <- table1[,which(!(colnames(table1) %in% colnames(table0)))]
+table0 <- cbind(table0,table1)
+```
+
+meta
+```{r}
+metadata0 <- read.table("5.1 WGS_A&R_meta_unpolit.tsv", header=T, row.names = 1,sep="\t")
+metadata1 <- read.table("5.1 WGS_Active_meta_unpolit.tsv", header=T, row.names = 1,sep="\t")
+metadata1 <- metadata1[which(!(rownames(metadata1) %in% rownames(metadata0))),]
+metadata <- rbind(metadata0,metadata1)
+table(metadata$site_name)
+# Cedars-Sinai     Cincinnati          Emory            MGH MGH Pediatrics 
+#            180            293             12            262             84 
+# metadata <- metadata[which(metadata$site_name!="Emory"),]
+#metadata$State[metadata$State=="nan"]<- 'Healthy'
+metadata$State[is.na(metadata$State)]<- 'Healthy'
+```
+
+```{r}
+hcluster_order <- c("Blautia","Lachnospiraceae;__", "Romboutsia", "Anaerostipes","Butyricicoccus","Alistipes",                         "Lachnospira","Odoribacter","Oscillospirales;__;__", "Faecalibacterium",
+                    "Ruminococcaceae;__","Agathobacter","Dorea","[Eubacterium]_coprostanoligenes_group",
+                    "Lachnospiraceae_NK4A136_group","Fusicatenibacter","Roseburia",
+                    "Monoglobus","NK4A214_group","Prevotellaceae;__","UCG-002","Prevotella","Subdoligranulum","Enterobacteriaceae;__","Escherichia-Shigella","Veillonella","Clostridioides","Proteus")
+
+table1 <- table0[which(rownames(table0) %in% hcluster_order),which(colnames(table0) %in% rownames(metadata))]
+table1 <- table1[hcluster_order,]
+table1 <- table1[complete.cases(table1),]
+
+```
+
+bar
+```{r}
+##
+interprat_genus1 <- tibble::rownames_to_column(data.frame(t(table1),check.names = F))
+kk<-tidyr::gather(interprat_genus1,Genus,Abundance,-c(rowname))
+meta <- tibble::rownames_to_column(data.frame(metadata))
+kk <- merge(kk,meta,by='rowname')
+kk1 <- kk[,c(1:3,25)]
+#kk1 <- pivot_longer(kk1,-c(Genus, Group), names_to = "measurement", values_to = "value")#报错，不记得这个怎么用了
+kk1['Abundancelog2'] <- -log2(kk1$Abundance+0.000001)
+
+kk1$State <- factor(kk1$State,levels = c("Healthy", "Remission","Active"))
+kk1$Genus <- factor(kk1$Genus,levels = hcluster_order)
+# font_import()
+# load fonts - every session
+loadfonts(device = "postscript", quiet = TRUE)
+# fonts()
+theme_set(theme_minimal())
+# Calculates mean, sd, se and IC
+kk1$Abundance_new <- kk1$Abundance*100
+my_sum <- kk1 %>%
+  group_by(Genus,State) %>%
+  summarize( 
+    n=n(),
+    mean=mean(Abundance_new),
+    sd=sd(Abundance_new)
+  ) %>%
+  mutate( se=sd/sqrt(n))  %>%
+  mutate( ic=se * qt((1-0.05)/2 + .5, n-1))
+
+p2 <-ggplot(my_sum, aes(x = State, y =mean )) +
+  geom_bar(stat="identity", fill="#829bcc", alpha=1) +
+  geom_errorbar( aes(ymin=mean-ic, ymax=mean+ic), width=0.3, colour="black", alpha=0.9, size=0.7)+
+  geom_smooth(aes(x=as.numeric(State), y=Abundance_new),data = kk1, color='#829bcc', level=0.95,method='loess', size=0.7,se = TRUE)+
+  # geom_ribbon(aes(ymin = mean-ic, ymax = mean+ic), fill = "grey",alpha=.2)+
+  # stat_smooth(method = "lm", se = FALSE,span = 0.8, aes(group=1),colour='#9A7D58')+
+  ylab('Relative Abundance (%)')+
+  theme(axis.text = element_text(size = 14,colour = 'black',family = 'Arial'), 
+        # axis.text.y = element_blank(),
+        axis.title.y = element_text(size = 18,colour = 'black',family = 'Arial'),
+        axis.title.x  = element_blank(),
+        panel.grid = element_blank(),
+        panel.background = element_rect(color = 'black', fill = 'transparent'),
+        legend.title=element_blank(),
+        legend.position="none",
+        panel.border = element_rect(fill=NA,color="black", linewidth=2, linetype="solid"))+
+  facet_wrap(vars(Genus), nrow = 5, scales = 'free_y')+
+  theme(strip.text = element_text(size=14,family = 'Arial')) #分面变量的标题
+# facet_grid(Genus~.)
+p2
+
+ggsave("5.2 validation-bar2.pdf",p2,width=13 ,height=15*5/7,device = cairo_pdf)
+
+```

@@ -1,0 +1,218 @@
+---
+title: ""
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+rm(list = ls())
+gc()
+setwd("/Users/cwn/workdir/project/IBD-px/result-all-CD")
+library(ggthemes)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+# library(corrplot)
+library(pheatmap)
+library(RColorBrewer)
+# library(ComplexHeatmap)
+library(circlize)
+library(vegan)
+library(Hmisc)
+```
+
+
+```{r}
+short_name <- function(taxa){
+  final<-c()
+  for (i in taxa) {
+    x = unlist(strsplit(i,"g__"))[2]
+    if(is.na(x)){
+      x = unlist(strsplit(i,"f__"))[2]
+      if(is.na(x)){
+        x = unlist(strsplit(i,"o__"))[2]
+        if(is.na(x)){
+          x = unlist(strsplit(i,"c__"))[2]
+          if(is.na(x)){
+            x = unlist(strsplit(i,"p__"))[2]
+            if(is.na(x)){
+              x = unlist(strsplit(i,"d__"))[2]
+            }else{
+              final <- c(final,x)
+            }
+          }else{
+            final <- c(final,x)
+          }
+        }else{
+          final <- c(final,x)
+        }
+      }else{
+        final <- c(final,x)
+      }
+    }else{
+      final <- c(final,x)
+    }
+  }
+  final <- make.unique(final, sep = "_")#去重
+}
+```
+
+```{r}
+#
+venn_result <- read.table("2.1.1.2 venn-wilcox-genus.tsv", header=T, row.names = NULL,sep="\t")
+# siblingR <- read.table("2.1.1 wilcoxon_test_result-Sib-R-genus.tsv", header=T, row.names = 1,sep="\t")
+# siblingA <- read.table("2.1.1 wilcoxon_test_result-Sib-A-genus.tsv", header=T, row.names = 1,sep="\t")
+
+# nonR <- read.table("2.1.1 wilcoxon_test_result-non-R-genus.tsv", header=T, row.names = 1,sep="\t")
+# nonA <- read.table("2.1.1 wilcoxon_test_result-non-A-genus.tsv", header=T, row.names = 1,sep="\t")
+
+table_path='genus-rela.tsv'
+# taxonmy_path='dada2-Silva_table/taxonomy.tsv'
+# 
+table0 = read.table(table_path, header = T,comment.char = "$", row.names= 1, sep="\t")
+# taxonmy = read.table(taxonmy_path, header = T,  row.names= 1, sep="\t")
+
+venn_result1 <- unlist(strsplit(venn_result[which(venn_result$Sibling_A==TRUE |
+                                                  venn_result$Sibling_R==TRUE),]$..values.., split = ','))
+```
+
+2.meta
+```{r}
+metadata <- read.table('metadata-sibling-R.csv', header=T, row.names = 1,sep=",")
+# metadata <- metadata[which(metadata$Disease=='CD'),]
+# metadata_non <- read.table('metadata-sib-nonsib.tsv', header=T, row.names = 1,sep="\t")
+# metadata_non <- metadata_non[which(metadata_non$Disease!='CD'),]
+table1 <- table0[which(rownames(table0) %in% venn_result1),which(colnames(table0) %in% rownames(metadata))]
+rownames(table1) <- short_name(rownames(table1))
+```
+
+```{r}
+scfa_meta <- metadata[,c(3,21:27)]
+table2 <- merge(t(table1),scfa_meta,by='row.names')
+table2 <- table2[complete.cases(table2),]
+table(table2$Disease)
+rownames(table2) <- table2$Row.names
+table2 <- table2[,-1]
+table2_scfa <- table2
+table2_scfa['Disease'] <-NULL
+
+#在prism中绘制差异bar图
+scfa_meta <- scfa_meta[complete.cases(scfa_meta),]
+# write.csv(scfa_meta, file = '4.2 scfa_meta-A.csv',row.names = TRUE)
+
+res2 <- rcorr(as.matrix(table2_scfa),type = "spearman")
+#提取r、p值矩阵；
+r.cor<-res2$r
+p.cor<-res2$P
+r.cor <- r.cor[which(rownames(r.cor) %in% rownames(table1)),which(colnames(r.cor) %in% colnames(scfa_meta))]
+p.cor <- p.cor[which(rownames(p.cor) %in% rownames(table1)),which(colnames(p.cor) %in% colnames(scfa_meta))]
+min(p.cor,na.rm = T)
+#判断显著性
+pmt <- as.matrix(p.cor)
+pmt1 <- pmt
+pmt1[pmt1>0.05]<-''
+pmt1 <- pmt1[hcluster_order,]
+pmt1 <- p.adjust(as.numeric(pmt1[pmt1>0]))
+if (!is.null(pmt)){
+  ssmt <- pmt< 0.05
+  
+  pmt[ssmt] <-'*'
+  pmt[!ssmt]<- ''
+} else {
+  pmt <- F
+}
+
+# hcluster_order <- c("Lachnospiraceae;__","Blautia","Alistipes","Dorea","Anaerostipes","Romboutsia",
+#                     "Butyricicoccus","Ruminococcaceae;__","Oscillospirales;__;__","Lachnospiraceae_NK4A136_group",
+#                     "Agathobacter","Roseburia","Monoglobus","[Eubacterium]_coprostanoligenes_group",
+#                     "Lachnospira","Subdoligranulum","Odoribacter","Prevotella","Fusicatenibacter",
+#                     "UCG-002","NK4A214_group","Prevotellaceae;__","Faecalibacterium","Enterobacteriaceae;__","Escherichia-Shigella",
+#                     "Veillonella","Clostridioides","Proteus")
+hcluster_order <- c("Blautia","Lachnospiraceae;__", "Romboutsia", "Anaerostipes","Butyricicoccus","Alistipes",                         "Lachnospira","Odoribacter","Oscillospirales;__;__", "Faecalibacterium",
+                    "Ruminococcaceae;__","Agathobacter","Dorea","[Eubacterium]_coprostanoligenes_group",
+                    "Lachnospiraceae_NK4A136_group","Fusicatenibacter","Roseburia",
+                    "Monoglobus","NK4A214_group","Prevotellaceae;__","UCG-002","Prevotella","Subdoligranulum","Enterobacteriaceae;__","Escherichia-Shigella","Veillonella","Clostridioides","Proteus")
+r.cor <- r.cor[hcluster_order,]
+pmt <- pmt[hcluster_order,]
+pmt[pmt=='NaN'] <- ''
+p <- pheatmap(as.matrix(r.cor),scale = "none",cluster_row = F, cluster_col = F, border=NA,
+         display_numbers = pmt, number_color = "black",
+         cellwidth = 60, cellheight =20,legend=TRUE,
+         color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+         fontsize_row = 15,
+         fontsize_col = 20,
+         fontsize_number = 25,
+         angle_col = "0"
+         # breaks=c(bk1,bk2),
+         # annotation_col=annot
+         )
+
+pdf("4.2 spearman-heatmap-scfa-healthy.pdf",width = 10,height = 10)
+p
+dev.off()
+
+```
+
+```{r}
+metadata1 <- read.table('metadata-sib-nonsib-cou.tsv', header=T, row.names = 1,sep="\t")
+metadata1 <- metadata1[which(metadata1$State=='Activate'),]
+blood_meta <- metadata1[,c(3,11:17)]
+table0_1 <- table0[which(rownames(table0) %in% venn_result1),which(colnames(table0) %in% rownames(metadata1))]
+rownames(table0_1) <- short_name(rownames(table0_1))
+table3 <- merge(t(table0_1),blood_meta,by='row.names')
+# table3 <- table3[complete.cases(table3),]
+rownames(table3) <- table3$Row.names
+table3 <- table3[,-1]
+table3_blood <- table3
+table3_blood['Disease'] <-NULL
+
+res2 <- rcorr(as.matrix(table3_blood),type = "spearman")
+#提取r、p值矩阵；
+r.cor<-res2$r
+p.cor<-res2$P
+r.cor <- r.cor[which(rownames(r.cor) %in% rownames(table0_1)),which(colnames(r.cor) %in% colnames(blood_meta))]
+p.cor <- p.cor[which(rownames(p.cor) %in% rownames(table0_1)),which(colnames(p.cor) %in% colnames(blood_meta))]
+min(p.cor,na.rm = T)
+#判断显著性
+pmt <- as.matrix(p.cor)
+pmt1 <- pmt
+pmt1[pmt1>0.05]<-''
+pmt1 <- pmt1[hcluster_order,]
+# pmt1 <- p.adjust(as.numeric(pmt1[pmt1>0]))
+
+# hcluster_order <- c("Lachnospiraceae;__","Blautia","Alistipes","Dorea","Anaerostipes","Romboutsia",
+#                     "Butyricicoccus","Ruminococcaceae;__","Oscillospirales;__;__","Lachnospiraceae_NK4A136_group",
+#                     "Agathobacter","Roseburia","Monoglobus","[Eubacterium]_coprostanoligenes_group",
+#                     "Lachnospira","Subdoligranulum","Odoribacter","Prevotella","Fusicatenibacter",
+#                     "UCG-002","NK4A214_group","Prevotellaceae;__","Faecalibacterium","Enterobacteriaceae;__","Escherichia-Shigella",
+#                     "Veillonella","Clostridioides","Proteus")
+hcluster_order <- c("Blautia","Lachnospiraceae;__", "Romboutsia", "Anaerostipes","Butyricicoccus","Alistipes",                         "Lachnospira","Odoribacter","Oscillospirales;__;__", "Faecalibacterium",
+                    "Ruminococcaceae;__","Agathobacter","Dorea","[Eubacterium]_coprostanoligenes_group",
+                    "Lachnospiraceae_NK4A136_group","Fusicatenibacter","Roseburia",
+                    "Monoglobus","NK4A214_group","Prevotellaceae;__","UCG-002","Prevotella","Subdoligranulum","Enterobacteriaceae;__","Escherichia-Shigella","Veillonella","Clostridioides","Proteus")
+r.cor <- r.cor[hcluster_order,]
+pmt <- pmt[hcluster_order,]
+pmt[pmt=='NaN'] <- ''
+bk <- c(seq(-0.7,-0.01,by=0.02),seq(0,0.6,by=0.02))
+
+p <- pheatmap(as.matrix(r.cor),scale = "none",cluster_row = F, cluster_col = T, border=NA,
+         display_numbers = pmt, number_color = "black",
+         cellwidth = 50, cellheight =20,legend=TRUE,
+         # color = colorRampPalette(c("navy", "white", "firebrick3"))(100),
+         color=c(colorRampPalette(colors=c("navy","white"))(length(bk)/2),
+                 colorRampPalette(color=c("white","firebrick3"))(length(bk)/2)),
+         fontsize_row = 15,
+         fontsize_col = 17,
+         fontsize_number = 20,
+         breaks=bk,
+         angle_col = "0"
+         # annotation_col=annot
+         )
+
+pdf("4.2 spearman-heatmap-blood-R+25.pdf",width = 10,height = 10)
+p
+dev.off()
+```
